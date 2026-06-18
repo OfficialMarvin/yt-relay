@@ -1,33 +1,123 @@
-<!-- player.html hosted at e.g. https://yourname.github.io/yt-relay/player.html -->
 <!DOCTYPE html>
-<html>
-<head><meta charset="utf-8" /></head>
-<body style="margin:0">
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Player</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+    #player {
+      width: 100%;
+      height: 100%;
+    }
+    /* Click-to-unmute overlay (browsers block unmuted autoplay) */
+    #unmute {
+      position: fixed;
+      bottom: 12px;
+      right: 12px;
+      z-index: 10;
+      padding: 8px 14px;
+      font: 600 13px/1 system-ui, sans-serif;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 6px;
+      cursor: pointer;
+      backdrop-filter: blur(4px);
+    }
+    #unmute:hover {
+      background: rgba(0, 0, 0, 0.85);
+    }
+    #unmute.hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
   <div id="player"></div>
+  <button id="unmute" class="hidden">🔇 Tap to unmute</button>
+
   <script>
     const params = new URLSearchParams(location.search);
-    const videos = JSON.parse(params.get("videos") || "[]");
-    const muted = params.get("muted") === "true";
 
+    let videos = [];
+    try {
+      videos = JSON.parse(params.get("videos") || "[]");
+    } catch (e) {
+      videos = [];
+    }
+
+    const wantSound = params.get("muted") === "false"; // user wants audio
     let player;
+    let currentIndex = 0;
+
+    function playIndex(i) {
+      currentIndex = ((i % videos.length) + videos.length) % videos.length;
+      if (player && videos[currentIndex]) {
+        player.loadVideoById(videos[currentIndex]);
+      }
+    }
+
     function onYouTubeIframeAPIReady() {
+      if (!videos.length) return;
+
       player = new YT.Player("player", {
         width: "100%",
         height: "100%",
         videoId: videos[0],
-        playerVars: { autoplay: 1, mute: muted ? 1 : 0, playsinline: 1,
-                      origin: location.origin }, // real origin — key part
+        playerVars: {
+          autoplay: 1,
+          mute: 1,          // MUST start muted so autoplay is allowed
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          enablejsapi: 1,
+          origin: location.origin
+        },
         events: {
-          onReady: e => e.target.playVideo(),
-          onStateChange: e => {
+          onReady: (e) => {
+            e.target.playVideo();
+            if (wantSound) {
+              // Try to unmute automatically; if the browser blocks it,
+              // the user can click the overlay button.
+              e.target.unMute();
+              e.target.setVolume(100);
+              const btn = document.getElementById("unmute");
+              btn.classList.remove("hidden");
+            }
+          },
+          onStateChange: (e) => {
             if (e.data === YT.PlayerState.ENDED) {
-              const next = (videos.indexOf(player.getVideoData().video_id) + 1) % videos.length;
-              player.loadVideoById(videos[next]);
+              playIndex(currentIndex + 1);
+            }
+          },
+          onError: (e) => {
+            // 100 = removed, 101/150 = embedding disabled → skip to next video
+            console.error("YouTube player error:", e.data);
+            if (videos.length > 1) {
+              playIndex(currentIndex + 1);
             }
           }
         }
       });
     }
+
+    // Manual unmute (always allowed because it's a user gesture)
+    document.getElementById("unmute").addEventListener("click", () => {
+      if (player) {
+        player.unMute();
+        player.setVolume(100);
+        player.playVideo();
+      }
+      document.getElementById("unmute").classList.add("hidden");
+    });
   </script>
   <script src="https://www.youtube.com/iframe_api"></script>
 </body>
